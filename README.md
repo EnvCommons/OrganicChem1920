@@ -61,6 +61,16 @@ Questions span three difficulty levels: intermediate (238 tasks, 60%), advanced 
 
 OrganicChem1920 requires an OpenAI API key (`OPENAI_API_KEY` secret) for LLM-based grading of answers.
 
+```bash
+export OPENAI_API_KEY=your_api_key_here
+```
+
+Pass the key via the secrets parameter when creating a session:
+
+```python
+async with environment.session(task=task, secrets={"openai_api_key": OPENAI_API_KEY}) as session:
+```
+
 ## Safety
 
 Agents in OrganicChem1920 are asked to answer chemistry questions from a historical textbook. The environment does not present direct safety risks, as agents only provide text answers with no access to external systems, tools, or the internet.
