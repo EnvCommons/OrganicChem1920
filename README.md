@@ -23,7 +23,7 @@ OrganicChem1920 does not require a sandbox. It has minimal compute requirements.
 
 ## Tasks
 
-There are three splits: train (70%), validation (15%), and test (15%). Questions are loaded from a parquet file and span multiple categories (procedural, conceptual, reasoning, safety) and difficulty levels. Each question includes metadata: chapter, page reference, category, difficulty, and a context snippet from the source textbook.
+There are 399 questions across three splits: train (279 tasks, 70%), validation (60 tasks, 15%), and test (60 tasks, 15%). Questions are loaded from a parquet file and span multiple categories (procedural, conceptual, reasoning, safety) and difficulty levels. Each question includes metadata: chapter, page reference, category, difficulty, and a context snippet from the source textbook.
 
 ## Reward Structure
 
@@ -55,7 +55,7 @@ OrganicChem1920 is a single-turn environment. The agent receives a question and 
 
 ## Environment Difficulty
 
-[Statistics on environment difficulty here]
+Questions span three difficulty levels: intermediate (238 tasks, 60%), advanced (130 tasks, 33%), and basic (31 tasks, 8%). Categories include conceptual (140), reasoning (121), procedural (121), and safety (17) questions.
 
 ## Other Environment Requirements
 
@@ -68,7 +68,7 @@ Agents in OrganicChem1920 are asked to answer chemistry questions from a histori
 ## Citations
 
 ```bibtex
-@dataset{GRVolForecast,
+@dataset{GROrganicChem1920,
   author    = {General Reasoning Inc. Team},
   title     = {OrganicChem1920},
   year      = {2026},
