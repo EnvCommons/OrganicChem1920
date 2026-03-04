@@ -189,9 +189,7 @@ class OrganicChem1920(Environment):
 
     async def get_prompt(self) -> List[TextBlock]:
         """Return the question prompt with metadata."""
-        prompt_text = f"""{self.question}
-
-Please provide a detailed answer with reasoning. Consider the historical context (1920s chemistry practices) where relevant."""
+        prompt_text = f"""{self.question}"""
 
         return [TextBlock(text=prompt_text)]
 
