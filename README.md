@@ -27,7 +27,7 @@ There are 399 questions across three splits: train (279 tasks, 70%), validation 
 
 ## Reward Structure
 
-This is a sparse reward environment with continuous scoring. The agent calls the `answer` tool once with its response, and the environment grades it using an LLM grader (gpt-5-mini). The grader assigns a score from 0.0 to 1.0 and a grade:
+This is a sparse reward environment with continuous scoring. The agent replies with its answer as an ordinary assistant message (no tool call); the message text is then graded by an LLM grader (gpt-5-mini). The grader assigns a score from 0.0 to 1.0 and a grade:
 
 - **CORRECT** (score 0.85+): The answer demonstrates full conceptual understanding. Reward: the grader's score (0.85-1.0).
 - **PARTIALLY_CORRECT** (score 0.7+): The answer shows partial but conceptually sound reasoning. Reward: the grader's score (0.7-0.85).
@@ -45,13 +45,13 @@ Questions are sourced from Holleman's "A Text-book of Organic Chemistry" (1920),
 
 ## Tools
 
-Agents are given a single tool:
+OrganicChem1920 exposes no tools to the agent. The rollout ends as soon as the model emits a plain assistant message; that message is graded by the LLM judge against the reference answer.
 
-- `answer`: Submit an answer to the chemistry question. The answer is graded by the LLM grader against the reference answer. Returns the grade, score, and feedback. This tool can only be called once per task.
+Because the whole assistant message becomes the graded text, avoid any preamble or commentary that isn't part of the answer.
 
 ## Time Horizon
 
-OrganicChem1920 is a single-turn environment. The agent receives a question and submits one answer. Each task requires exactly one tool call.
+OrganicChem1920 is a single-turn environment. The agent receives a question and replies with its answer as an ordinary message.
 
 ## Environment Difficulty
 

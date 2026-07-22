@@ -23,6 +23,7 @@ from openreward.environments import (
     JSONObject,
     TextBlock,
     ToolOutput,
+    terminal,
     tool,
     Split
 )
@@ -284,6 +285,7 @@ class OrganicChem1920(Environment):
         paragraphs = [p.strip() for p in response.split("\n\n") if p.strip()]
         return paragraphs[-1] if paragraphs else "See grading analysis above."
 
+    @terminal
     @tool
     async def answer(self, params: AnswerInput) -> ToolOutput:
         """
