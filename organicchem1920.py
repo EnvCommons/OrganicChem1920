@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import pandas as pd
 import openai
@@ -52,7 +52,7 @@ Key considerations for chemistry answers:
 1. **Chemical nomenclature**: Accept both IUPAC names, common names, and historical 1920s terminology
    - Example: "ethyl alcohol" = "ethanol" = "C2H5OH"
 2. **Procedural understanding**: Check if the student grasps WHY steps are performed, not just WHAT
-3. **Partial credit**: Award partial credit for partially correct reasoning
+3. **No partial credit**: This is STRICT grading. Mark CORRECT only if the answer contains every key point of the reference answer, with no chemical errors and no material omissions. If anything essential is missing, vague, or wrong, do NOT mark CORRECT — use PARTIALLY_CORRECT for a partially sound answer and INCORRECT otherwise.
 4. **Safety awareness**: Value safety considerations even if not in reference answer
 
 Question: {question}
@@ -64,7 +64,7 @@ Provide your analysis in this format:
 **Analysis:**
 [2-3 sentences explaining what the student got right/wrong, addressing chemical accuracy and conceptual understanding]
 
-**Score:** [0.0 to 1.0, where 0.7+ is partially correct, 0.85+ is correct]
+**Score:** [0.0 to 1.0 — your confidence the answer is fully correct]
 
 **Grade:** [CORRECT | PARTIALLY_CORRECT | INCORRECT]
 
@@ -158,7 +158,10 @@ class OrganicChem1920(Environment):
     Grading uses LLM evaluation to handle:
     - Alternative chemical nomenclature (IUPAC vs. common vs. historical)
     - Varied explanation styles
-    - Partial credit for incomplete but conceptually sound answers
+
+    Grading is strict and the reward is binary: an answer earns 1.0 only if the
+    grader marks it CORRECT, meaning every key point is present with no
+    material omissions. A partially sound answer earns 0.0.
     """
 
     def __init__(self, task_spec: JSONObject, secrets: dict[str, str] = {}) -> None:
@@ -214,9 +217,8 @@ class OrganicChem1920(Environment):
 
         Returns dict with:
         - grading_response: full LLM response
-        - score: numeric 0.0-1.0
-        - grade: CORRECT | PARTIALLY_CORRECT | INCORRECT
-        - feedback: student-facing explanation
+        - score: the grader's numeric score, or None if it gave none
+        - grade: CORRECT | PARTIALLY_CORRECT | INCORRECT (this sets the reward)
         """
         grader_prompt = GRADER_TEMPLATE.format(
             question=self.question,
@@ -247,26 +249,24 @@ class OrganicChem1920(Environment):
                 f"the answer was wrong."
             )
 
-        # Parse grade and score
-        grade = self._parse_grade(grading_response)
-        score = self._parse_score(grading_response)
-        feedback = self._extract_feedback(grading_response)
-
         return {
             "grading_response": grading_response,
-            "score": score,
-            "grade": grade,
-            "feedback": feedback
+            "score": self._parse_score(grading_response),
+            "grade": self._parse_grade(grading_response),
         }
 
     def _has_verdict(self, response: str) -> bool:
-        """Whether a grader reply carries something a grade can be read from."""
-        if not response.strip():
-            return False
-        if GRADE_FIELD_RE.search(response) or SCORE_FIELD_RE.search(response):
+        """Whether a grader reply carries a grade the reward can be read from.
+
+        The reward comes from the grade alone, so a reply with a score but no
+        grade is not usable — treating it as usable would let _parse_grade fall
+        through to INCORRECT and fabricate a 0.0.
+        """
+        if GRADE_FIELD_RE.search(response):
             return True
-        # A loosely formatted but substantive reply still grades.
-        return bool(SCORE_LOOSE_RE.search(response)) or "CORRECT" in response.upper()
+        # No Grade field, but a bare keyword still parses. "CORRECT" is a
+        # substring of INCORRECT and PARTIALLY_CORRECT, so this covers all three.
+        return "CORRECT" in response.upper()
 
     def _parse_grade(self, response: str) -> str:
         """Extract final grade from grading response."""
@@ -284,48 +284,21 @@ class OrganicChem1920(Environment):
         else:
             return "INCORRECT"
 
-    def _parse_score(self, response: str) -> float:
-        """Extract numeric score from grading response."""
+    def _parse_score(self, response: str) -> Optional[float]:
+        """Extract the grader's numeric score, if it supplied one.
+
+        Recorded for analysis only — the reward comes from the grade. Returns
+        None when the reply carries no score rather than inventing one.
+        """
         # Look for "Score: X.XX" or "**Score:** X.XX"
         match = SCORE_FIELD_RE.search(response) or SCORE_LOOSE_RE.search(response)
-
-        if match:
-            try:
-                score = float(match.group(1))
-                return max(0.0, min(1.0, score))  # Clamp to [0, 1]
-            except ValueError:
-                pass
-
-        # No numeric score — derive one from the grade, so the two stay in
-        # agreement. PARTIALLY_CORRECT must be settled before CORRECT, which
-        # _parse_grade already handles.
-        return {
-            "CORRECT": 1.0,
-            "PARTIALLY_CORRECT": 0.5,
-            "INCORRECT": 0.0,
-        }[self._parse_grade(response)]
-
-    def _extract_feedback(self, response: str) -> str:
-        """Extract student feedback from grading response."""
-        # Look for "Feedback:" section
-        match = re.search(
-            r"\*\*Feedback:\*\*\s*(.+?)(?:\n\n|\Z)",
-            response,
-            re.IGNORECASE | re.DOTALL
-        )
         if not match:
-            match = re.search(
-                r"Feedback[:\s]+(.+?)(?:\n\n|\Z)",
-                response,
-                re.IGNORECASE | re.DOTALL
-            )
+            return None
 
-        if match:
-            return match.group(1).strip()
-
-        # Fallback: return last paragraph
-        paragraphs = [p.strip() for p in response.split("\n\n") if p.strip()]
-        return paragraphs[-1] if paragraphs else "See grading analysis above."
+        try:
+            return max(0.0, min(1.0, float(match.group(1))))  # Clamp to [0, 1]
+        except ValueError:
+            return None
 
     @terminal
     @tool
@@ -335,7 +308,8 @@ class OrganicChem1920(Environment):
 
         Your answer will be graded on conceptual understanding and reasoning,
         not exact wording. Alternative chemical nomenclature is accepted.
-        Partial credit is awarded for incomplete but conceptually sound reasoning.
+        Grading is strict: the answer must cover every key point to score at
+        all, and a partially correct answer earns nothing.
         """
         # Handle empty answers
         if not params.answer.strip():
@@ -349,34 +323,31 @@ class OrganicChem1920(Environment):
         # Grade the answer
         grading = await self._grade_answer(params.answer)
 
-        # Construct feedback message
-        feedback_text = f"""**Grade:** {grading['grade']} (Score: {grading['score']:.2f})
+        # Strict binary reward: only a CORRECT verdict earns credit.
+        # PARTIALLY_CORRECT and INCORRECT both score 0.0. The grader's numeric
+        # score is kept in metadata for analysis but does not shape the reward,
+        # since the LLM picks it freely and it is not calibrated between runs.
+        reward = 1.0 if grading['grade'] == "CORRECT" else 0.0
 
-**Your Answer:**
-{params.answer}
-
-**Reference Answer:**
-{self.reference_answer}
-
-**Feedback:**
-{grading['feedback']}
-
----
-**Source:** Page {self.page_reference}, {self.chapter}
-"""
-
+        # This is a @terminal tool, so the harness routes the model's final
+        # plain message here and the rollout is already over — no turn remains
+        # in which anything could read a reply. Emit a one-line receipt for the
+        # logs and keep the detail in metadata: the reference answer and the
+        # full grading must not be echoed into the recorded transcript, which
+        # would put this task's answer key in every trajectory.
         return ToolOutput(
-            blocks=[TextBlock(text=feedback_text)],
+            blocks=[TextBlock(text=f"Answer graded: {grading['grade']} (reward {reward:.1f}).")],
             metadata={
                 "uuid": self.uuid,
                 "student_answer": params.answer,
                 "reference_answer": self.reference_answer,
                 "grade": grading['grade'],
                 "score": grading['score'],
+                "reward": reward,
                 "category": self.category,
                 "difficulty": self.difficulty,
                 "full_grading": grading['grading_response']
             },
-            reward=grading['score'],
+            reward=reward,
             finished=True
         )
