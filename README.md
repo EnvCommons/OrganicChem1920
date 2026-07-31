@@ -4,7 +4,7 @@
 
 ## Description
 
-**OrganicChem1920** is an environment for evaluating agents on organic chemistry questions derived from Arnold Frederik Holleman's "A Text-book of Organic Chemistry" (1920). Questions test procedural understanding and conceptual comprehension of organic chemistry, including historical 1920s terminology and practices. An LLM grader evaluates answers for conceptual correctness, accepting alternative nomenclature and awarding partial credit.
+**OrganicChem1920** is an environment for evaluating agents on organic chemistry questions derived from Arnold Frederik Holleman's "A Text-book of Organic Chemistry" (1920). Questions test procedural understanding and conceptual comprehension of organic chemistry, including historical 1920s terminology and practices. An LLM grader evaluates answers for conceptual correctness, accepting alternative nomenclature but grading strictly: only a fully correct answer scores.
 
 ## Capabilities
 
@@ -27,16 +27,23 @@ There are 399 questions across three splits: train (279 tasks, 70%), validation 
 
 ## Reward Structure
 
-This is a sparse reward environment with continuous scoring. The agent replies with its answer as an ordinary assistant message (no tool call); the message text is then graded by an LLM grader (gpt-5-mini). The grader assigns a score from 0.0 to 1.0 and a grade:
+This is a sparse reward environment with a **binary** reward. The agent replies with its answer as an ordinary assistant message (no tool call); the message text is then graded by an LLM grader (gpt-5-mini), which returns one of three verdicts. Only the first earns anything:
 
-- **CORRECT** (score 0.85+): The answer demonstrates full conceptual understanding. Reward: the grader's score (0.85-1.0).
-- **PARTIALLY_CORRECT** (score 0.7+): The answer shows partial but conceptually sound reasoning. Reward: the grader's score (0.7-0.85).
-- **INCORRECT** (score < 0.7): The answer is conceptually wrong or missing key information. Reward: the grader's score (0.0-0.7).
+- **CORRECT** → reward **1.0**. Every key point of the reference answer is present, with no chemical errors and no material omissions.
+- **PARTIALLY_CORRECT** → reward **0.0**. Partially sound reasoning earns nothing; there is no partial credit.
+- **INCORRECT** → reward **0.0**. The answer is wrong or missing key information.
+
+An empty answer scores 0.0 without invoking the grader.
+
+The grader also emits a numeric confidence score. It is recorded in the tool
+result's `metadata` for analysis but does **not** shape the reward — it is an
+uncalibrated free-choice number that varies by roughly ±0.05 when the same
+answer is regraded, so the discrete verdict is the stable signal.
 
 Grading rules:
 - Both IUPAC names, common names, and historical 1920s terminology are accepted.
 - Evaluation focuses on conceptual correctness and understanding, not exact wording.
-- Partial credit is awarded for incomplete but conceptually sound answers.
+- Grading is strict: an answer that is incomplete, vague, or partially correct is not marked CORRECT.
 - Safety awareness is valued even if not in the reference answer.
 
 ## Data
