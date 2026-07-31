@@ -72,6 +72,20 @@ Provide your analysis in this format:
 [1-2 sentences of constructive feedback for the student]
 """
 
+# The grader endpoint occasionally returns finish_reason=stop with empty content.
+# A blank or fieldless reply carries no verdict, so retry it before giving up.
+GRADER_MAX_ATTEMPTS = 3
+
+# The template asks for "**Grade:** [CORRECT | PARTIALLY_CORRECT | INCORRECT]".
+# Match the field itself so the grade is read from where it was requested;
+# longest alternative first, since "INCORRECT" contains "CORRECT".
+GRADE_FIELD_RE = re.compile(
+    r"\*\*Grade:\*\*\s*\[?\s*(PARTIALLY[_ ]CORRECT|INCORRECT|CORRECT)",
+    re.IGNORECASE,
+)
+SCORE_FIELD_RE = re.compile(r"\*\*Score:\*\*\s*([0-9.]+)", re.IGNORECASE)
+SCORE_LOOSE_RE = re.compile(r"Score[:\s]+([0-9.]+)", re.IGNORECASE)
+
 
 # ============================================================================
 # Global Data Loading
@@ -212,12 +226,26 @@ class OrganicChem1920(Environment):
 
         # Use gpt-5-mini for grading (per framework requirements)
         # NO temperature parameter
-        response = await self.client.chat.completions.create(
-            model="gpt-5-mini",
-            messages=[{"role": "user", "content": grader_prompt}]
-        )
+        # API exceptions propagate: the platform retries them and treats a
+        # persistent failure as terminal. Only a 2xx reply carrying no usable
+        # verdict is retried here, since that fails silently otherwise.
+        for _ in range(GRADER_MAX_ATTEMPTS):
+            response = await self.client.chat.completions.create(
+                model="gpt-5-mini",
+                messages=[{"role": "user", "content": grader_prompt}]
+            )
 
-        grading_response = response.choices[0].message.content or ""
+            grading_response = response.choices[0].message.content or ""
+
+            if self._has_verdict(grading_response):
+                break
+        else:
+            raise RuntimeError(
+                f"Grader returned no usable verdict after {GRADER_MAX_ATTEMPTS} "
+                f"attempts (last reply: {grading_response!r}). Refusing to score "
+                f"this answer, since a blank grader reply is not evidence that "
+                f"the answer was wrong."
+            )
 
         # Parse grade and score
         grade = self._parse_grade(grading_response)
@@ -231,8 +259,23 @@ class OrganicChem1920(Environment):
             "feedback": feedback
         }
 
+    def _has_verdict(self, response: str) -> bool:
+        """Whether a grader reply carries something a grade can be read from."""
+        if not response.strip():
+            return False
+        if GRADE_FIELD_RE.search(response) or SCORE_FIELD_RE.search(response):
+            return True
+        # A loosely formatted but substantive reply still grades.
+        return bool(SCORE_LOOSE_RE.search(response)) or "CORRECT" in response.upper()
+
     def _parse_grade(self, response: str) -> str:
         """Extract final grade from grading response."""
+        field = GRADE_FIELD_RE.search(response)
+        if field:
+            return field.group(1).upper().replace(" ", "_")
+
+        # No Grade field — fall back to scanning for a bare keyword. Check
+        # PARTIALLY and INCORRECT first: both contain "CORRECT" as a substring.
         upper = response.upper()
         if "PARTIALLY_CORRECT" in upper or "PARTIALLY CORRECT" in upper:
             return "PARTIALLY_CORRECT"
@@ -244,9 +287,7 @@ class OrganicChem1920(Environment):
     def _parse_score(self, response: str) -> float:
         """Extract numeric score from grading response."""
         # Look for "Score: X.XX" or "**Score:** X.XX"
-        match = re.search(r"\*\*Score:\*\*\s*([0-9.]+)", response, re.IGNORECASE)
-        if not match:
-            match = re.search(r"Score[:\s]+([0-9.]+)", response, re.IGNORECASE)
+        match = SCORE_FIELD_RE.search(response) or SCORE_LOOSE_RE.search(response)
 
         if match:
             try:
@@ -255,13 +296,14 @@ class OrganicChem1920(Environment):
             except ValueError:
                 pass
 
-        # Fallback based on grade keyword
-        if "CORRECT" in response.upper() and "INCORRECT" not in response.upper():
-            return 1.0
-        elif "PARTIALLY" in response.upper():
-            return 0.5
-        else:
-            return 0.0
+        # No numeric score — derive one from the grade, so the two stay in
+        # agreement. PARTIALLY_CORRECT must be settled before CORRECT, which
+        # _parse_grade already handles.
+        return {
+            "CORRECT": 1.0,
+            "PARTIALLY_CORRECT": 0.5,
+            "INCORRECT": 0.0,
+        }[self._parse_grade(response)]
 
     def _extract_feedback(self, response: str) -> str:
         """Extract student feedback from grading response."""
