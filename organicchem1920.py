@@ -129,6 +129,11 @@ load_questions_data()
 # Pydantic Models
 # ============================================================================
 
+# Reward for a submission made after the task has already been graded. Negative
+# so repeat submissions are actively discouraged, not merely left unscored.
+REPEAT_SUBMISSION_PENALTY = -0.1
+
+
 class TaskSpec(BaseModel):
     """Lightweight task specification with UUID only."""
     uuid: str
@@ -177,6 +182,13 @@ class OrganicChem1920(Environment):
         self.reference_answer = str(question_row["answer"])
         self.category = str(question_row["category"])
         self.difficulty = str(question_row["difficulty"])
+
+        # Graded submissions this session. @terminal already hides this tool from
+        # the model, so the harness normally invokes it once at the end of the
+        # rollout -- but Environment._call_tool dispatches by name and does not
+        # exclude terminal tools, so a direct second call would re-run the LLM
+        # grader and pay out again. Defence in depth.
+        self.submitted = 0
         self.page_reference = int(question_row["page_reference"])
         self.context_snippet = str(question_row["context_snippet"])
         self.chapter = str(question_row["chapter"])
@@ -311,6 +323,16 @@ class OrganicChem1920(Environment):
         Grading is strict: the answer must cover every key point to score at
         all, and a partially correct answer earns nothing.
         """
+        if self.submitted > 0:
+            return ToolOutput(
+                blocks=[TextBlock(text="An answer has already been submitted for this task. "
+                                       "This episode is over: it is not re-graded, and repeat "
+                                       "submissions are penalised (reward -0.1).")],
+                metadata={"already_submitted": True, "submission_count": self.submitted},
+                reward=REPEAT_SUBMISSION_PENALTY,
+                finished=True,
+            )
+
         # Handle empty answers
         if not params.answer.strip():
             return ToolOutput(
@@ -322,6 +344,10 @@ class OrganicChem1920(Environment):
 
         # Grade the answer
         grading = await self._grade_answer(params.answer)
+
+        # An empty answer returns above without grading, so it does not consume
+        # the attempt.
+        self.submitted += 1
 
         # Strict binary reward: only a CORRECT verdict earns credit.
         # PARTIALLY_CORRECT and INCORRECT both score 0.0. The grader's numeric
