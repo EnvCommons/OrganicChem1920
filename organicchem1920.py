@@ -254,11 +254,12 @@ class OrganicChem1920(Environment):
             if self._has_verdict(grading_response):
                 break
         else:
+            # The grader's reply is left out of the message: it can restate the
+            # reference answer, and exception text reaches the agent.
             raise RuntimeError(
                 f"Grader returned no usable verdict after {GRADER_MAX_ATTEMPTS} "
-                f"attempts (last reply: {grading_response!r}). Refusing to score "
-                f"this answer, since a blank grader reply is not evidence that "
-                f"the answer was wrong."
+                f"attempts. Refusing to score this answer, since a blank grader "
+                f"reply is not evidence that the answer was wrong."
             )
 
         return {
@@ -355,24 +356,20 @@ class OrganicChem1920(Environment):
         # since the LLM picks it freely and it is not calibrated between runs.
         reward = 1.0 if grading['grade'] == "CORRECT" else 0.0
 
-        # This is a @terminal tool, so the harness routes the model's final
-        # plain message here and the rollout is already over — no turn remains
-        # in which anything could read a reply. Emit a one-line receipt for the
-        # logs and keep the detail in metadata: the reference answer and the
-        # full grading must not be echoed into the recorded transcript, which
-        # would put this task's answer key in every trajectory.
+        # The result carries the verdict, score and the agent's own answer.
+        # The reference answer and the grader's full reply (whose analysis and
+        # feedback restate the reference) stay out of both the text and the
+        # metadata, since both are shown to the agent.
         return ToolOutput(
             blocks=[TextBlock(text=f"Answer graded: {grading['grade']} (reward {reward:.1f}).")],
             metadata={
                 "uuid": self.uuid,
                 "student_answer": params.answer,
-                "reference_answer": self.reference_answer,
                 "grade": grading['grade'],
                 "score": grading['score'],
                 "reward": reward,
                 "category": self.category,
                 "difficulty": self.difficulty,
-                "full_grading": grading['grading_response']
             },
             reward=reward,
             finished=True
