@@ -19,11 +19,11 @@ OrganicChem1920 does not require a sandbox. It has minimal compute requirements.
 
 ## License
 
-[MIT](https://opensource.org/license/mit).
+[MIT](https://opensource.org/licenses/MIT).
 
 ## Tasks
 
-There are 399 questions across three splits: train (279 tasks, 70%), validation (60 tasks, 15%), and test (60 tasks, 15%). Questions are loaded from a parquet file and span multiple categories (procedural, conceptual, reasoning, safety) and difficulty levels. Each question includes metadata: chapter, page reference, category, difficulty, and a context snippet from the source textbook.
+There are 279 tasks in the `train` split, 60 in `validation` and 60 in `test` (399 questions in total). Questions are loaded from a parquet file and span multiple categories (procedural, conceptual, reasoning, safety) and difficulty levels. Each question includes metadata: chapter, page reference, category, difficulty, and a context snippet from the source textbook.
 
 ## Reward Structure
 
@@ -35,10 +35,7 @@ This is a sparse reward environment with a **binary** reward. The agent replies 
 
 An empty answer scores 0.0 without invoking the grader.
 
-The grader also emits a numeric confidence score. It is recorded in the tool
-result's `metadata` for analysis but does **not** shape the reward — it is an
-uncalibrated free-choice number that varies by roughly ±0.05 when the same
-answer is regraded, so the discrete verdict is the stable signal.
+The grader also emits a numeric confidence score. It is recorded in the tool result's `metadata` for analysis but does **not** shape the reward: it is an uncalibrated free-choice number, so the discrete verdict is used instead.
 
 Grading rules:
 - Both IUPAC names, common names, and historical 1920s terminology are accepted.
@@ -48,7 +45,7 @@ Grading rules:
 
 ## Data
 
-Questions are sourced from Holleman's "A Text-book of Organic Chemistry" (1920), a public domain textbook. The dataset is stored as a parquet file on the OpenReward platform.
+Questions are sourced from Holleman's "A Text-book of Organic Chemistry" (1920), a public domain textbook. Question and reference-answer pairs were generated from chunks of the textbook text by an OpenAI model (`generate_dataset.py`). The dataset is stored as a parquet file on the OpenReward platform.
 
 ## Tools
 
@@ -66,13 +63,7 @@ Questions span three difficulty levels: intermediate (238 tasks, 60%), advanced 
 
 ## Other Environment Requirements
 
-OrganicChem1920 requires an OpenAI API key (`OPENAI_API_KEY` secret) for LLM-based grading of answers.
-
-```bash
-export OPENAI_API_KEY=your_api_key_here
-```
-
-Pass the key via the secrets parameter when creating a session:
+OrganicChem1920 requires an OpenAI API key for LLM-based grading of answers, passed in session secrets as `openai_api_key`. Pass the key via the secrets parameter when creating a session:
 
 ```python
 async with environment.session(task=task, secrets={"openai_api_key": OPENAI_API_KEY}) as session:
